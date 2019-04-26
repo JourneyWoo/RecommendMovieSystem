@@ -50,14 +50,19 @@ Cons: Boring recommendation and it requires more mathematic computation which ma
 ## AWS Settings
 
 AWS IPV4 Address: 3.85.121.66
+
 HTTP x.y.z.0/24 7474
+
 HTTPS  x.y.z.0/24 7473
+
 BOLT x.y.z.0/24 7687
 
 ## Neo4j Remote Database Settings
 
 Connect URL: neo4j@bolt://3.85.121.66:7687
+
 Username: xyz
+
 Password: xyz
 
 ## Neo4j Structure
