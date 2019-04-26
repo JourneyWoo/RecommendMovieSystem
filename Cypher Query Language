@@ -1,0 +1,150 @@
+// Create the CONSTRAINT movieId
+CREATE CONSTRAINT ON (m:Movie) ASSERT m.movieId IS UNIQUE
+
+// Create the CONSTRAINT userId
+CREATE CONSTRAINT ON (u:User) ASSERT u.userId IS UNIQUE
+
+// Create the LABEL User
+LOAD CSV WITH HEADERS FROM 'file:///is490/ratings.csv' AS line
+WITH line                           LIMIT 2000
+MERGE (:User { userId: line.userId})
+
+// Create the LABEL Movie
+USING PERIODIC COMMIT 10000
+LOAD CSV WITH HEADERS FROM 'file:///is490/ratings.csv' AS line
+WITH line
+MATCH (u:User {userId: line.userId})
+MERGE (m:Movie{movieId:line.movieId})
+
+// Create the Rating Relationship
+USING PERIODIC COMMIT 10000
+LOAD CSV WITH HEADERS FROM 'file:///is490/ratings.csv' AS line
+WITH line
+MATCH (u:User {userId: line.userId})
+MATCH (m:Movie {movieId: line.movieId})
+WHERE exists(u.userId) AND exists(m.movieId)
+MERGE (u)-[r:Rating]->(m)
+ON CREATE SET  r.rating = toInteger(line.rating),r.timestamp = toInteger(line.timestamp)
+ON MATCH SET r.rating = toInteger(line.rating),r.timestamp = toInteger(line.timestamp)
+
+// Create the CONSTRAINT tconst
+CREATE CONSTRAINT ON (c:Movie) ASSERT c.tconst IS UNIQUE
+
+// Add propert tconst to the LABEL Movie
+USING PERIODIC COMMIT 10000
+LOAD CSV WITH HEADERS FROM 'file:///is490/fixed.links.csv'
+AS line
+WITH line
+MATCH (n:Movie {movieId: line.movieId})
+WHERE exists(n.movieId)
+SET
+n.tconst = line.imdbId
+
+// Create the CONSTRAINT nconst
+CREATE CONSTRAINT ON (p:Person) ASSERT p.nconst IS UNIQUE
+
+// Create the LABEL Person
+USING PERIODIC COMMIT 10000
+LOAD CSV WITH HEADERS FROM 'file:///is490/fixed.title.principals.tsv'
+AS line FIELDTERMINATOR '\t'
+WITH line                    //LIMIT 2000
+MATCH (m:Movie {tconst: line.tconst})
+MERGE (n:Person {nconst: line.nconst})
+
+//  Create the :ACTED_IN relationships
+// PROFILE
+USING PERIODIC COMMIT 10000
+LOAD CSV WITH HEADERS FROM 'file:///is490/fixed.title.principals.tsv'
+AS line FIELDTERMINATOR '\t'
+WITH line                         //LIMIT 2000
+MATCH (p:Person {nconst: line.nconst})
+MATCH (t:Movie {tconst: line.tconst})
+WHERE exists(p.nconst) AND exists(t.tconst)
+AND line.category IN ['actor','actress']
+MERGE (p)-[r:ACTED_IN]->(t)
+ON CREATE SET  r.order = line.ordering, r.characters = line.characters
+ON MATCH SET  r.order = line.ordering, r.characters = line.characters
+
+//  Create the :DIRECTED relationships
+USING PERIODIC COMMIT 10000
+LOAD CSV WITH HEADERS FROM 'file:///is490/fixed.title.principals.tsv'
+AS line FIELDTERMINATOR '\t'
+WITH line                         //LIMIT 2000
+MATCH (p:Person {nconst: line.nconst})
+MATCH (t:Movie {tconst: line.tconst})
+WHERE exists(p.nconst) AND exists(t.tconst)
+AND line.category = 'director'
+        MERGE (p)-[r:DIRECTED]->(t)
+ ON CREATE SET r.order = line.ordering, r.job = line.job
+ ON MATCH SET  r.order = line.ordering, r.job = line.job
+
+//  Create the :WRITER_OF relationships.
+USING PERIODIC COMMIT 10000
+LOAD CSV WITH HEADERS FROM 'file:///is490/fixed.title.principals.tsv'
+ AS line FIELDTERMINATOR '\t'
+ WITH line                         //LIMIT 2000
+ MATCH (p:Person {nconst: line.nconst})
+ MATCH (t:Movie {tconst: line.tconst})
+  WHERE exists(p.nconst) AND exists(t.tconst)
+    AND line.category = 'writer'
+MERGE (p)-[r:WRITER_OF]->(t)
+ON CREATE SET r.order = line.ordering, r.job = line.job
+ON MATCH SET r.order = line.ordering, r.job = line.job
+
+// Create the CONSTRAINT Genre
+CREATE CONSTRAINT ON (g:Genre) ASSERT g.genre IS UNIQUE
+
+// Create the LABEL Genre
+USING PERIODIC COMMIT 10000
+LOAD CSV WITH HEADERS FROM 'file:///is490/movies.csv'
+AS line
+WITH line
+MATCH (m:Movie {movieId: line.movieId})
+MERGE (:Genre { genre: line.genres})
+
+// Create the GENREIN Relationship
+USING PERIODIC COMMIT 10000
+LOAD CSV WITH HEADERS FROM 'file:///is490/movies.csv'
+AS line
+WITH line
+MATCH (p:Movie {movieId: line.movieId})
+MATCH (g:Genre {genre: line.genres})
+WHERE exists(p.movieId) AND exists(g.genre)
+MERGE (p)-[r:GENREIN]->(g)
+
+//Method2: Find the neighbours for user
+MATCH (u1{userId:'1'})-[r1:Rating]->(m1:Movie)<-[]-()-[]->(:Movie)<-[r2:Rating]-(u2:User)
+WITH  u1, max(r1.rating) as rmax1, max(r2.rating) as rmax2
+MATCH (u1)-[r1:Rating]->(m1:Movie)<-[]-()-[]->(:Movie)<-[r2:Rating]-(u2:User)
+WHERE r1.rating = rmax1 AND r2.rating = rmax2 AND u2 <> u1
+WITH u1, u2, count(*) as count
+ORDER BY count DESC
+Limit 10
+RETURN collect(u2.userId) as Neighbours
+
+//Need python here to save the list Neighbours
+
+//Method1: Find the common movies for the neighbours
+WITH ["15","18","26","10","19","5","16","4","25","13"] as Neighbours
+MATCH (u:User) where u.userId IN Neighbours
+WITH collect(u) as nodes
+UNWIND nodes as n
+UNWIND nodes as m
+WITH * WHERE id(n) < id(m)
+MATCH path = (n)-[r2:Rating]->(m2:Movie)<-[r3:Rating]-(m)
+WITH m2, count(m2) as count
+WHERE count = 10
+RETURN collect(m2.tconst) as CommonM
+
+//Need python here to save the list CommonM
+
+//Method2: Find the ratings between Neighbours and CommonM(movie)
+WITH ["15","18","26","10","19","5","16","4","25","13"] as Neighbours,
+    ["tt0112384", "tt0076759", "tt0116629", "tt0114746", "tt0114369", "tt0114814", "tt0111161", "tt0108052"] as CommonM
+MATCH (u:User) WHERE u.userId IN Neighbours
+MATCH (p:Movie) WHERE p.tconst IN CommonM
+WITH collect(u) as nodes, collect(p) as modes
+UNWIND nodes as n
+UNWIND modes as m
+MATCH path = (n)-[r2:Rating]->(m)
+RETURN n.userId, r2.rating, m.tconst
